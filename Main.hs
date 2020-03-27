@@ -1,7 +1,6 @@
 module Main where
 
-import qualified MyLib (someFunc)
+import qualified Hurl
 
 main :: IO ()
-main = do
-  MyLib.someFunc
+main = Hurl.runHurl
