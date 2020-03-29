@@ -146,8 +146,7 @@ drawMain (Hurl _ _ _ _ _ (Failed message)) = vCenter $ txt message
 draw :: Hurl -> [Widget Name]
 draw hurl@Hurl {_focus = focus} =
   [ vBox
-      [ txt "hurl 0.0.1",
-        drawMain hurl,
+      [ drawMain hurl,
         hBorder,
         drawInstructionLine focus
       ]
