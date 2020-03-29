@@ -43,7 +43,7 @@ data Name
   | UrlEditor
   | HeadersEditor
   | BodyEditor
-  | ResponseList
+  | ResponseViewport
   deriving (Eq, Ord, Show)
 
 data Focus
@@ -59,7 +59,7 @@ data Focus
 
 data Headers = Headers (List Name Header) (Editor T.Text Name) deriving (Show)
 
-data Response = NoResponse | Failed T.Text | Success (List Name T.Text) deriving (Show)
+data Response = NoResponse | Failed T.Text | Success T.Text deriving (Show)
 
 data Hurl
   = Hurl
@@ -84,7 +84,6 @@ drawInstructionLine FocusHeaderNameEditor = txt "esc/enter: back"
 drawInstructionLine FocusHeaderValueEditor = txt "esc/enter: back"
 drawInstructionLine FocusBodyEditor = txt "esc: back"
 drawInstructionLine FocusResponse = txt "esc: back"
-
 
 drawHeader :: Focus -> Editor T.Text Name -> Bool -> Header -> Widget Name
 drawHeader FocusHeadersBrowser _ focused (Header name value) =
@@ -125,33 +124,34 @@ editorHLimit editor = hLimit $ maximum (textWidth <$> getEditContents editor) + 
 
 drawMain :: Hurl -> Widget Name
 drawMain (Hurl focus method url (Headers headers editor) body NoResponse) =
-   vBox
-      [ hBox
+  vBox
+    [ hBox
         [ editorHLimit method $
             renderEditor (txt . T.unlines) (focus == Method) method,
           renderEditor (txt . T.unlines) (focus == Url) url
         ],
-        vLimit (V.length (listElements headers) + 1) $
-          renderList
-            (drawHeader focus editor)
-            (focus == FocusHeadersBrowser || focus == FocusHeaderValueEditor)
-            headers,
-        renderEditor
-          (txt . T.unlines)
-          (focus == FocusBodyEditor)
-          body
-      ]
-drawMain (Hurl _ _ _ _ _ (Success response)) = renderList (const txt) False response
+      vLimit (V.length (listElements headers) + 1) $
+        renderList
+          (drawHeader focus editor)
+          (focus == FocusHeadersBrowser || focus == FocusHeaderValueEditor)
+          headers,
+      renderEditor
+        (txt . T.unlines)
+        (focus == FocusBodyEditor)
+        body
+    ]
+drawMain (Hurl _ _ _ _ _ (Success response)) = viewport ResponseViewport Vertical $ txt response
 drawMain (Hurl _ _ _ _ _ (Failed message)) = vCenter $ txt message
 
 draw :: Hurl -> [Widget Name]
-draw hurl@Hurl{_focus = focus} = [
-  vBox [
-    txt "hurl 0.0.1",
-    drawMain hurl,
-    hBorder,
-    drawInstructionLine focus
-  ]]
+draw hurl@Hurl {_focus = focus} =
+  [ vBox
+      [ txt "hurl 0.0.1",
+        drawMain hurl,
+        hBorder,
+        drawInstructionLine focus
+      ]
+  ]
 
 initialHurl :: Hurl
 initialHurl =
@@ -194,9 +194,6 @@ makeRequest hurl@(Hurl _ method url headers body _) =
                   { _focus = FocusResponse,
                     _response =
                       Success
-                        . (\bodyLines -> list ResponseList bodyLines 1)
-                        . V.fromList
-                        . T.lines
                         . decodeUtf8
                         . B.toStrict
                         . Http.getResponseBody
@@ -289,10 +286,22 @@ bodyEditorHandleEvent hurl@Hurl {_body = body} (VtyEvent e) =
         }
 bodyEditorHandleEvent hurl _ = continue hurl
 
+scrollResponseViewport :: (ViewportScroll Name -> a) -> a
+scrollResponseViewport scroller =
+  do
+    let vp = viewportScroll ResponseViewport
+    scroller vp
+
 responseHandleEvent :: Hurl -> BrickEvent Name Event -> EventM Name (Next Hurl)
 responseHandleEvent hurl (VtyEvent (Vty.EvKey Vty.KEsc [])) = continue $ hurl {_focus = Top, _response = NoResponse}
-responseHandleEvent hurl@Hurl {_response = (Success response)} (VtyEvent e) =
-  handleListEventVi (const return) e response >>= \newList -> continue $ hurl {_response = Success newList}
+responseHandleEvent hurl@Hurl {_response = (Success response)} (VtyEvent (Vty.EvKey (Vty.KChar 'j') [])) =
+  scrollResponseViewport $ \viewPort -> vScrollBy viewPort 1 >> continue hurl
+responseHandleEvent hurl@Hurl {_response = (Success response)} (VtyEvent (Vty.EvKey (Vty.KChar 'k') [])) =
+  scrollResponseViewport $ \viewPort -> vScrollBy viewPort (-1) >> continue hurl
+responseHandleEvent hurl@Hurl {_response = (Success response)} (VtyEvent (Vty.EvKey (Vty.KChar 'G') [])) =
+  scrollResponseViewport $ \viewPort -> vScrollToBeginning viewPort >> continue hurl
+responseHandleEvent hurl@Hurl {_response = (Success response)} (VtyEvent (Vty.EvKey (Vty.KChar 'g') [])) =
+  scrollResponseViewport $ \viewPort -> vScrollToEnd viewPort >> continue hurl
 responseHandleEvent hurl _ = continue hurl
 
 handleEvent :: Hurl -> BrickEvent Name Event -> EventM Name (Next Hurl)
