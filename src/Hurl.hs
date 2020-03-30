@@ -21,7 +21,7 @@ import qualified Data.ByteString.Lazy as B
 import qualified Data.CaseInsensitive as CI
 import Data.Maybe (fromJust)
 import qualified Data.Text as T
-import Data.Text.Encoding (decodeUtf8, encodeUtf8)
+import Data.Text.Encoding (decodeUtf8', encodeUtf8)
 import qualified Data.Vector as V
 import qualified Graphics.Vty as Vty
 import Graphics.Vty.Attributes
@@ -187,16 +187,14 @@ makeRequest hurl@(Hurl _ method url headers body _) =
                 $ baseRequest
             mkRequest :: EventM Name (Next Hurl)
             mkRequest = do
-              response <- Http.httpLBS request
+              response <- decodeUtf8' . B.toStrict . Http.getResponseBody <$> Http.httpLBS request
+              let val = case response of
+                    Left _ -> Failed "Could not decode response"
+                    Right value -> Success value
               continue $
                 hurl
                   { _focus = FocusResponse,
-                    _response =
-                      Success
-                        . decodeUtf8
-                        . B.toStrict
-                        . Http.getResponseBody
-                        $ response
+                    _response = val
                   }
         mkRequest `catch` \e -> continue $ hurl {_response = Failed $ showHttpExceptionFriendly (e :: Http.HttpException)}
       Left e -> continue $ hurl {_focus = FocusResponse, _response = Failed "Malformed URL"}
